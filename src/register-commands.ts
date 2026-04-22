@@ -9,12 +9,10 @@ async function registerCommands(): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(config.discord.token);
   const commandPayload = commands.map((command) => command.data.toJSON());
 
-  await rest.put(
-    Routes.applicationGuildCommands(config.discord.clientId, config.discord.guildId),
-    { body: commandPayload },
-  );
+  await rest.put(Routes.applicationCommands(config.discord.clientId), { body: commandPayload });
 
-  console.log(`Registered ${commandPayload.length} guild command(s) for CursedCode.`);
+  console.log(`Registered ${commandPayload.length} global command(s) for CursedCode.`);
+  console.log("Global command updates can take a little time to appear in Discord.");
 }
 
 registerCommands().catch((error) => {

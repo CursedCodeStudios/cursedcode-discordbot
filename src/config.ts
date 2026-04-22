@@ -7,7 +7,9 @@ export interface AppConfig {
   discord: {
     token: string;
     clientId: string;
-    guildId: string;
+  };
+  database: {
+    path: string;
   };
 }
 
@@ -42,14 +44,41 @@ export function loadConfig(): AppConfig {
     discord: {
       token: requireString(discord.token, "discord.token"),
       clientId: requireString(discord.clientId, "discord.clientId"),
-      guildId: requireString(discord.guildId, "discord.guildId"),
+    },
+    database: {
+      path: optionalString(readTableValue(parsedConfig, "database", "path")) ?? "data/cursedcode.db",
     },
   };
+}
+
+function readTableValue(
+  root: Record<string, unknown>,
+  tableName: string,
+  keyName: string,
+): unknown {
+  const table = root[tableName];
+  if (!isRecord(table)) {
+    return undefined;
+  }
+
+  return table[keyName];
 }
 
 function requireString(value: unknown, keyName: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`Missing required string value for "${keyName}" in ${CONFIG_PATH}.`);
+  }
+
+  return value.trim();
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Expected an optional string value in ${CONFIG_PATH}, but received an invalid entry.`);
   }
 
   return value.trim();

@@ -4,7 +4,8 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
-import { entersState, getVoiceConnection, joinVoiceChannel, VoiceConnectionStatus } from "@discordjs/voice";
+
+import type { CommandContext } from "./index.js";
 
 export const parkCommand = {
   data: new SlashCommandBuilder()
@@ -18,7 +19,10 @@ export const parkCommand = {
         .addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)
         .setRequired(true),
     ),
-  async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+  async execute(
+    interaction: ChatInputCommandInteraction,
+    context: CommandContext,
+  ): Promise<void> {
     if (!interaction.inGuild() || !interaction.guildId) {
       await interaction.reply({
         content: "This command can only be used inside a server.",
@@ -40,32 +44,14 @@ export const parkCommand = {
       return;
     }
 
-    const existingConnection = getVoiceConnection(interaction.guildId);
-    if (existingConnection) {
-      existingConnection.destroy();
-    }
-
     try {
-      const connection = joinVoiceChannel({
-        channelId: selectedChannel.id,
-        guildId: selectedChannel.guild.id,
-        adapterCreator: selectedChannel.guild.voiceAdapterCreator,
-        selfMute: true,
-        selfDeaf: true,
-      });
-
-      await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+      await context.parkingManager.park(selectedChannel);
 
       await interaction.reply({
         content: `Parked in ${selectedChannel.toString()} while muted and deafened.`,
         ephemeral: true,
       });
     } catch (error) {
-      const activeConnection = getVoiceConnection(interaction.guildId);
-      if (activeConnection) {
-        activeConnection.destroy();
-      }
-
       await interaction.reply({
         content: `I couldn't join ${selectedChannel.toString()}. Check my voice permissions and try again.`,
         ephemeral: true,

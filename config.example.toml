@@ -1,4 +1,6 @@
 [discord]
 token = "your-bot-token"
 clientId = "your-application-client-id"
-guildId = "your-test-guild-id"
+
+[database]
+path = "data/cursedcode.db"
