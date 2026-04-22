@@ -18,6 +18,10 @@ import { ParkingDatabase } from "./database.js";
 
 type ParkableChannel = StageChannel | VoiceChannel;
 
+const DISCONNECT_GRACE_MS = 1_500;
+const INITIAL_RECONNECT_DELAY_MS = 250;
+const MAX_RECONNECT_DELAY_MS = 10_000;
+
 interface TrackedConnection {
   connection: VoiceConnection;
   disconnectTimer?: NodeJS.Timeout;
@@ -212,7 +216,7 @@ export class ParkingManager {
 
       this.destroyExistingConnection(guildId, true);
       this.scheduleReconnect(guildId, "voice disconnect");
-    }, 5_000);
+    }, DISCONNECT_GRACE_MS);
   }
 
   private scheduleReconnect(guildId: string, reason: string): void {
@@ -225,7 +229,7 @@ export class ParkingManager {
     }
 
     const attempt = this.retryCounts.get(guildId) ?? 0;
-    const delayMs = Math.min(30_000, 1_000 * 2 ** attempt);
+    const delayMs = Math.min(MAX_RECONNECT_DELAY_MS, INITIAL_RECONNECT_DELAY_MS * 2 ** attempt);
 
     console.warn(`Scheduling reconnect for guild ${guildId} in ${delayMs}ms (${reason}).`);
 
