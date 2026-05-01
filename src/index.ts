@@ -16,6 +16,7 @@ const parkingManager = new ParkingManager(client, parkingDatabase);
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`CursedCode is online as ${readyClient.user.tag}.`);
   void parkingManager.restoreAll();
+  parkingManager.startWatchdog();
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

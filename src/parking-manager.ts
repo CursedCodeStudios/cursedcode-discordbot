@@ -11,16 +11,18 @@ import {
   Guild,
   PermissionFlagsBits,
   StageChannel,
+  VoiceBasedChannel,
   VoiceChannel,
 } from "discord.js";
 
-import { ParkingDatabase } from "./database.js";
+import { ParkedChannelRecord, ParkingDatabase } from "./database.js";
 
 type ParkableChannel = StageChannel | VoiceChannel;
 
 const DISCONNECT_GRACE_MS = 1_500;
 const INITIAL_RECONNECT_DELAY_MS = 250;
 const MAX_RECONNECT_DELAY_MS = 10_000;
+const WATCHDOG_INTERVAL_MS = 30_000;
 
 interface TrackedConnection {
   connection: VoiceConnection;
@@ -41,6 +43,8 @@ export class ParkingManager {
   private readonly retryTimers = new Map<string, NodeJS.Timeout>();
   private readonly retryCounts = new Map<string, number>();
   private readonly trackedConnections = new Map<string, TrackedConnection>();
+  private readonly reconnectingGuilds = new Set<string>();
+  private watchdogInterval?: NodeJS.Timeout;
 
   constructor(
     private readonly client: Client,
@@ -62,17 +66,37 @@ export class ParkingManager {
     await Promise.allSettled(records.map((record) => this.restoreGuild(record.guildId, "startup")));
   }
 
+  startWatchdog(): void {
+    if (this.watchdogInterval) {
+      return;
+    }
+
+    this.watchdogInterval = setInterval(() => {
+      void this.runWatchdogAudit();
+    }, WATCHDOG_INTERVAL_MS);
+
+    console.log(`Started parked voice watchdog with a ${WATCHDOG_INTERVAL_MS / 1000}s audit interval.`);
+  }
+
   private async restoreGuild(guildId: string, reason: string): Promise<void> {
+    if (this.isReconnectInFlight(guildId)) {
+      return;
+    }
+
     const record = this.database.getParkedChannel(guildId);
     if (!record) {
       return;
     }
+
+    this.reconnectingGuilds.add(guildId);
 
     try {
       await this.connectToChannel(guildId, record.channelId, false, reason);
       console.log(`Restored parked voice connection for guild ${guildId}.`);
     } catch (error) {
       this.handleReconnectFailure(guildId, error, reason);
+    } finally {
+      this.reconnectingGuilds.delete(guildId);
     }
   }
 
@@ -220,7 +244,7 @@ export class ParkingManager {
   }
 
   private scheduleReconnect(guildId: string, reason: string): void {
-    if (this.retryTimers.has(guildId)) {
+    if (this.retryTimers.has(guildId) || this.reconnectingGuilds.has(guildId)) {
       return;
     }
 
@@ -240,6 +264,64 @@ export class ParkingManager {
     }, delayMs);
 
     this.retryTimers.set(guildId, timer);
+  }
+
+  private async runWatchdogAudit(): Promise<void> {
+    const records = this.database.listParkedChannels();
+    if (records.length === 0) {
+      return;
+    }
+
+    await Promise.allSettled(records.map((record) => this.auditParkedGuild(record)));
+  }
+
+  private async auditParkedGuild(record: ParkedChannelRecord): Promise<void> {
+    const guildId = record.guildId;
+    if (this.isReconnectInFlight(guildId)) {
+      return;
+    }
+
+    const healthy = await this.isGuildConnectionHealthy(record);
+    if (healthy) {
+      return;
+    }
+
+    console.warn(
+      `Watchdog detected an unhealthy parked voice connection for guild ${guildId}; scheduling recovery.`,
+    );
+    this.scheduleReconnect(guildId, "watchdog audit");
+  }
+
+  private async isGuildConnectionHealthy(record: ParkedChannelRecord): Promise<boolean> {
+    const connection = this.trackedConnections.get(record.guildId)?.connection ?? getVoiceConnection(record.guildId);
+    if (!connection || connection.state.status !== VoiceConnectionStatus.Ready) {
+      return false;
+    }
+
+    const guild = await this.fetchGuild(record.guildId);
+    const me = await guild.members.fetchMe();
+    const voiceChannel = me.voice.channel;
+
+    return this.isExpectedVoiceChannel(voiceChannel, record.channelId);
+  }
+
+  private isExpectedVoiceChannel(
+    channel: VoiceBasedChannel | null,
+    expectedChannelId: string,
+  ): channel is ParkableChannel {
+    if (!channel) {
+      return false;
+    }
+
+    if (channel.id !== expectedChannelId) {
+      return false;
+    }
+
+    return channel.type === ChannelType.GuildVoice || channel.type === ChannelType.GuildStageVoice;
+  }
+
+  private isReconnectInFlight(guildId: string): boolean {
+    return this.retryTimers.has(guildId) || this.reconnectingGuilds.has(guildId);
   }
 
   private cancelReconnect(guildId: string): void {

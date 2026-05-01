@@ -7,6 +7,7 @@ CursedCode is a minimal TypeScript Discord bot with one global slash command: `/
 `/park channel:<voice-or-stage-channel>` makes the bot join the selected voice channel while self-muted and self-deafened.
 
 The bot stores one parked voice channel per guild in SQLite and will automatically reconnect to that channel after a process restart or an unexpected disconnect.
+It also runs a watchdog every 30 seconds to verify the bot is still in the exact parked channel and recover from silent Discord-side outages.
 
 ## Setup
 
